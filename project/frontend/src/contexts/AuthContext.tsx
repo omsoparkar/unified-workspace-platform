@@ -1,17 +1,19 @@
+'use client';
+
 import React, { createContext, useContext, useState, useEffect } from 'react';
-import { User, Organization, UserMembership } from '../types/auth.types';
-import { apiClient, setAccessToken } from '../lib/api-client';
+import { useRouter, usePathname } from 'next/navigation';
+import { User, Organization, Membership } from '../types';
+import { authService } from '../services/auth.service';
 
 interface AuthContextType {
   user: User | null;
   activeOrg: Organization | null;
-  memberships: UserMembership[];
-  isAuthenticated: boolean;
+  memberships: Membership[];
   isLoading: boolean;
-  login: (token: string, user: User, activeOrg: Organization, memberships: UserMembership[]) => void;
-  logout: () => Promise<void>;
+  login: (email: string, password: string) => Promise<void>;
+  register: (email: string, password: string, fullName: string, orgName: string) => Promise<void>;
   switchOrg: (orgId: string) => Promise<void>;
-  refreshSession: () => Promise<void>;
+  logout: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -19,67 +21,102 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<User | null>(null);
   const [activeOrg, setActiveOrg] = useState<Organization | null>(null);
-  const [memberships, setMemberships] = useState<UserMembership[]>([]);
-  const [isLoading, setIsLoading] = useState<boolean>(true);
+  const [memberships, setMemberships] = useState<Membership[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
 
-  const refreshSession = async () => {
+  const router = useRouter();
+  const pathname = usePathname();
+
+  const fetchCurrentUser = async () => {
     try {
-      const res = await apiClient.get('/auth/me');
-      const data = res.data?.data;
-      if (data) {
-        setUser(data.user);
-        setActiveOrg(data.activeOrg);
-        setMemberships(data.memberships || []);
+      const token = localStorage.getItem('token');
+      if (!token) {
+        setIsLoading(false);
+        return;
       }
-    } catch {
+      const data = await authService.getCurrentUser();
+      setUser(data.user);
+      setActiveOrg(data.activeOrg);
+      setMemberships(data.memberships || []);
+      if (data.activeOrg) {
+        localStorage.setItem('activeOrgId', data.activeOrg.id);
+      }
+    } catch (err) {
+      console.error('Auth refresh failed:', err);
+      localStorage.removeItem('token');
+      localStorage.removeItem('activeOrgId');
       setUser(null);
       setActiveOrg(null);
       setMemberships([]);
-      setAccessToken(null);
     } finally {
       setIsLoading(false);
     }
   };
 
   useEffect(() => {
-    refreshSession();
-
-    const handleUnauthorized = () => {
-      setUser(null);
-      setActiveOrg(null);
-      setMemberships([]);
-    };
-
-    window.addEventListener('unauthorized', handleUnauthorized);
-    return () => window.removeEventListener('unauthorized', handleUnauthorized);
+    fetchCurrentUser();
   }, []);
 
-  const login = (token: string, u: User, org: Organization, mems: UserMembership[]) => {
-    setAccessToken(token);
-    setUser(u);
-    setActiveOrg(org);
-    setMemberships(mems);
+  const login = async (email: string, password: string) => {
+    setIsLoading(true);
+    try {
+      const data = await authService.login({ email, password });
+      localStorage.setItem('token', data.accessToken);
+      if (data.activeOrg) {
+        localStorage.setItem('activeOrgId', data.activeOrg.id);
+      }
+      setUser(data.user);
+      setActiveOrg(data.activeOrg);
+      setMemberships(data.memberships || []);
+      router.push('/');
+    } finally {
+      setIsLoading(false);
+    }
   };
 
-  const logout = async () => {
+  const register = async (email: string, password: string, fullName: string, orgName: string) => {
+    setIsLoading(true);
     try {
-      await apiClient.post('/auth/logout');
-    } catch {
-      // Ignore error on logout
+      const data = await authService.register({ email, password, fullName, orgName });
+      localStorage.setItem('token', data.accessToken);
+      if (data.activeOrg) {
+        localStorage.setItem('activeOrgId', data.activeOrg.id);
+      }
+      setUser(data.user);
+      setActiveOrg(data.activeOrg);
+      setMemberships(data.memberships || []);
+      router.push('/');
     } finally {
-      setUser(null);
-      setActiveOrg(null);
-      setMemberships([]);
-      setAccessToken(null);
+      setIsLoading(false);
     }
   };
 
   const switchOrg = async (orgId: string) => {
-    const res = await apiClient.post('/auth/switch-org', { targetOrgId: orgId });
-    const newAccessToken = res.data?.data?.accessToken;
-    if (newAccessToken) {
-      setAccessToken(newAccessToken);
-      await refreshSession();
+    try {
+      const res = await authService.switchOrg(orgId);
+      if (res.token) {
+        localStorage.setItem('token', res.token);
+      }
+      localStorage.setItem('activeOrgId', res.activeOrg.id);
+      setActiveOrg(res.activeOrg);
+      await fetchCurrentUser();
+    } catch (err) {
+      console.error('Org switch failed:', err);
+    }
+  };
+
+  const logout = async () => {
+    try {
+      await authService.logout();
+    } catch (err) {
+      // Ignore logout request errors
+    } finally {
+      localStorage.removeItem('token');
+      localStorage.removeItem('activeOrgId');
+      setUser(null);
+      setActiveOrg(null);
+      setMemberships([]);
+      router.push('/login');
     }
   };
 
@@ -89,12 +126,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         user,
         activeOrg,
         memberships,
-        isAuthenticated: !!user,
         isLoading,
         login,
-        logout,
+        register,
         switchOrg,
-        refreshSession,
+        logout,
       }}
     >
       {children}
@@ -102,7 +138,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   );
 };
 
-export const useAuth = (): AuthContextType => {
+export const useAuth = () => {
   const context = useContext(AuthContext);
   if (!context) {
     throw new Error('useAuth must be used within an AuthProvider');

@@ -1,26 +1,36 @@
-import { apiClient } from '../lib/api-client';
+import { apiClient } from './api.client';
+import { AuditLogEntry, AuditVerificationResult } from '../types';
 
-export class AuditService {
-  static async listAuditLogs(params?: any) {
-    const res = await apiClient.get('/audit', { params });
-    return res.data;
-  }
-
-  static async getAuditTimeline(params?: any) {
-    const res = await apiClient.get('/audit/timeline', { params });
-    return res.data;
-  }
-
-  static async verifyHashChain() {
-    const res = await apiClient.get('/audit/verify');
-    return res.data;
-  }
-
-  static async exportCSV(params?: any) {
-    const res = await apiClient.get('/audit/export', {
-      params,
-      responseType: 'blob',
-    });
-    return res.data;
-  }
+export interface ListAuditParams {
+  search?: string;
+  action?: string;
+  resourceType?: string;
+  page?: number;
+  limit?: number;
 }
+
+export const auditService = {
+  async listAuditLogs(params?: ListAuditParams): Promise<{ logs: AuditLogEntry[]; meta: { totalRecords: number } }> {
+    const res = await apiClient.get('/audit', { params });
+    const data = res.data.data;
+    if (Array.isArray(data)) {
+      return { logs: data, meta: { totalRecords: data.length } };
+    }
+    return { logs: data.logs || [], meta: data.meta || { totalRecords: (data.logs || []).length } };
+  },
+
+  async getTimeline(params?: ListAuditParams): Promise<AuditLogEntry[]> {
+    const res = await apiClient.get('/audit/timeline', { params });
+    return res.data.data;
+  },
+
+  async verifyHashChain(): Promise<AuditVerificationResult> {
+    const res = await apiClient.get('/audit/verify');
+    return res.data.data;
+  },
+
+  async exportAuditCSV(): Promise<Blob> {
+    const res = await apiClient.get('/audit/export', { responseType: 'blob' });
+    return res.data;
+  },
+};

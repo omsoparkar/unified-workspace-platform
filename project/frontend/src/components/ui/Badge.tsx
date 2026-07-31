@@ -1,13 +1,15 @@
 import React from 'react';
+import { cn } from '../../lib/utils';
 
 export interface BadgeProps {
+  variant?: 'primary' | 'success' | 'warning' | 'danger' | 'info' | 'neutral';
   children: React.ReactNode;
-  variant?: 'success' | 'warning' | 'danger' | 'info' | 'neutral';
   className?: string;
 }
 
-export const Badge: React.FC<BadgeProps> = ({ children, variant = 'neutral', className = '' }) => {
-  const styles = {
+export const Badge: React.FC<BadgeProps> = ({ variant = 'neutral', children, className }) => {
+  const variants = {
+    primary: 'bg-indigo-500/10 text-indigo-400 border-indigo-500/20',
     success: 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20',
     warning: 'bg-amber-500/10 text-amber-400 border-amber-500/20',
     danger: 'bg-rose-500/10 text-rose-400 border-rose-500/20',
@@ -16,7 +18,7 @@ export const Badge: React.FC<BadgeProps> = ({ children, variant = 'neutral', cla
   };
 
   return (
-    <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border ${styles[variant]} ${className}`}>
+    <span className={cn('inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold border', variants[variant], className)}>
       {children}
     </span>
   );

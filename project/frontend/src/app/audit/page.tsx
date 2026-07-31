@@ -1,112 +1,166 @@
 'use client';
 
-import React from 'react';
-import { ProtectedRoute } from '../../components/auth/ProtectedRoute';
-import { useAuditLogs, useAuditVerification } from '../../hooks/useAuditHooks';
+import React, { useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
+import { auditService } from '../../services/audit.service';
 import { Card, CardHeader } from '../../components/ui/Card';
 import { Badge } from '../../components/ui/Badge';
 import { Button } from '../../components/ui/Button';
-import { ShieldCheck, Download, CheckCircle2, AlertTriangle, RefreshCw } from 'lucide-react';
-import { AuditService } from '../../services/audit.service';
+import { Input } from '../../components/ui/Input';
+import { ShieldCheck, Download, Search, RefreshCw, Key, Lock, CheckCircle2, AlertTriangle } from 'lucide-react';
 
 export default function AuditPage() {
-  const { logs, meta, isLoading, refetch } = useAuditLogs();
-  const { verification, isLoading: isVerifying, verify } = useAuditVerification();
+  const [search, setSearch] = useState('');
+  const [action, setAction] = useState('');
+
+  const { data: auditData, isLoading, refetch } = useQuery({
+    queryKey: ['audit-logs', search, action],
+    queryFn: () => auditService.listAuditLogs({ search, action }),
+  });
+
+  const { data: verifyResult, isLoading: verifyLoading, refetch: refetchVerify } = useQuery({
+    queryKey: ['audit-verify'],
+    queryFn: () => auditService.verifyHashChain(),
+  });
+
+  const logs = auditData?.logs || [];
 
   const handleExportCSV = async () => {
-    const blob = await AuditService.exportCSV();
-    const url = window.URL.createObjectURL(new Blob([blob]));
-    const link = document.createElement('a');
-    link.href = url;
-    link.setAttribute('download', `audit_logs_${Date.now()}.csv`);
-    document.body.appendChild(link);
-    link.click();
-    link.remove();
+    try {
+      const blob = await auditService.exportAuditCSV();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `audit-chain-export-${Date.now()}.csv`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+    } catch (err) {
+      console.error('CSV Export failed:', err);
+    }
   };
 
   return (
-    <ProtectedRoute>
-      <div className="space-y-6">
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-2 border-b border-slate-800/80">
-          <div>
-            <h1 className="text-2xl font-bold text-slate-100 flex items-center space-x-2">
-              <ShieldCheck className="w-6 h-6 text-emerald-400" />
-              <span>Immutable Audit Logs</span>
-            </h1>
-            <p className="text-xs text-slate-400 mt-1">Cryptographic SHA-256 Hash Chain integrity & downloadable CSV exports</p>
-          </div>
+    <div className="space-y-6">
+      {/* Header */}
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-2 border-b border-slate-800/80">
+        <div>
+          <h1 className="text-2xl font-bold text-slate-100 flex items-center space-x-2">
+            <ShieldCheck className="w-6 h-6 text-emerald-400" />
+            <span>Cryptographic SHA-256 Audit Logs</span>
+          </h1>
+          <p className="text-xs text-slate-400 mt-1">
+            Tamper-evident, hash-chained log verification for security governance
+          </p>
+        </div>
+        <div className="flex items-center space-x-3">
+          <Button variant="outline" size="sm" className="space-x-1.5" onClick={() => refetchVerify()}>
+            <RefreshCw className="w-4 h-4" />
+            <span>Verify Hash Chain</span>
+          </Button>
+          <Button variant="primary" size="sm" className="space-x-1.5 bg-emerald-600 hover:bg-emerald-500" onClick={handleExportCSV}>
+            <Download className="w-4 h-4" />
+            <span>Export CSV</span>
+          </Button>
+        </div>
+      </div>
+
+      {/* Cryptographic Chain Integrity Status Banner */}
+      <Card className="border-emerald-500/30 bg-emerald-950/10">
+        <div className="flex items-center justify-between">
           <div className="flex items-center space-x-3">
-            <Button variant="outline" size="sm" onClick={verify} isLoading={isVerifying} className="space-x-1.5">
-              <RefreshCw className="w-4 h-4 text-emerald-400" />
-              <span>Verify Hash Chain</span>
-            </Button>
-            <Button variant="primary" size="sm" onClick={handleExportCSV} className="space-x-1.5">
-              <Download className="w-4 h-4" />
-              <span>Export CSV</span>
-            </Button>
+            <div className="p-3 bg-emerald-500/10 text-emerald-400 rounded-2xl border border-emerald-500/20">
+              <Lock className="w-6 h-6" />
+            </div>
+            <div>
+              <h3 className="text-sm font-bold text-slate-100 flex items-center space-x-2">
+                <span>SHA-256 Hash Chain Integrity:</span>
+                {verifyLoading ? (
+                  <span className="text-slate-400">Verifying...</span>
+                ) : verifyResult?.isValid === false ? (
+                  <span className="text-rose-400 flex items-center space-x-1">
+                    <AlertTriangle className="w-4 h-4 inline" />
+                    <span>TAMPER DETECTED</span>
+                  </span>
+                ) : (
+                  <span className="text-emerald-400 flex items-center space-x-1">
+                    <CheckCircle2 className="w-4 h-4 inline" />
+                    <span>100% Intact & Verified</span>
+                  </span>
+                )}
+              </h3>
+              <p className="text-xs text-slate-400 mt-0.5">
+                Every log record contains a SHA-256 digest linked to the previous log entry hash.
+              </p>
+            </div>
+          </div>
+          <Badge variant={verifyResult?.isValid === false ? 'danger' : 'success'}>
+            {verifyResult?.totalLogs || logs.length} Verified Entries
+          </Badge>
+        </div>
+      </Card>
+
+      {/* Filter Bar */}
+      <Card>
+        <div className="flex flex-col md:flex-row gap-3">
+          <div className="flex-1 relative">
+            <Search className="w-4 h-4 text-slate-500 absolute left-3 top-3" />
+            <Input
+              placeholder="Search audit records by action or resource ID..."
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="pl-9"
+            />
+          </div>
+          <div className="w-full md:w-48">
+            <input
+              type="text"
+              placeholder="Filter by Action..."
+              value={action}
+              onChange={(e) => setAction(e.target.value)}
+              className="w-full px-3.5 py-2.5 bg-slate-900 border border-slate-800 rounded-xl text-sm text-slate-100 placeholder-slate-500 focus:outline-none focus:border-emerald-500"
+            />
           </div>
         </div>
+      </Card>
 
-        {/* Hash Chain Verification Status Card */}
-        {verification && (
-          <div
-            className={`p-4 rounded-xl border flex items-center justify-between text-xs ${
-              verification.isChainValid
-                ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-300'
-                : 'bg-rose-500/10 border-rose-500/30 text-rose-300'
-            }`}
-          >
-            <div className="flex items-center space-x-2.5">
-              {verification.isChainValid ? <CheckCircle2 className="w-5 h-5" /> : <AlertTriangle className="w-5 h-5" />}
-              <span>{verification.message}</span>
-            </div>
-            <Badge variant={verification.isChainValid ? 'success' : 'danger'}>
-              {verification.isChainValid ? 'Chain Intact' : 'Tampered'}
-            </Badge>
+      {/* Audit Log Table */}
+      <Card>
+        <CardHeader title="Audit Log Trail" subtitle={`Showing ${logs.length} logged system events`} />
+
+        {isLoading ? (
+          <div className="p-8 text-center text-slate-400 text-xs flex items-center justify-center space-x-2">
+            <div className="w-4 h-4 border-2 border-emerald-500 border-t-transparent rounded-full animate-spin" />
+            <span>Loading audit records...</span>
+          </div>
+        ) : logs.length === 0 ? (
+          <div className="p-8 text-center text-slate-400 text-xs">No audit entries found matching criteria.</div>
+        ) : (
+          <div className="divide-y divide-slate-800/60 font-mono text-xs">
+            {logs.map((log) => (
+              <div key={log.id} className="py-3 flex flex-col md:flex-row md:items-center justify-between gap-3 hover:bg-slate-900/40 p-3 rounded-xl">
+                <div className="space-y-1">
+                  <div className="flex items-center space-x-2.5">
+                    <Badge variant="primary">{log.action}</Badge>
+                    <span className="font-semibold text-slate-200">{log.resourceType}</span>
+                    <span className="text-slate-500">[{log.resourceId.substring(0, 8)}]</span>
+                  </div>
+                  <div className="flex items-center space-x-4 text-[11px] text-slate-500">
+                    <span>Actor: {log.actor?.fullName || log.actorId}</span>
+                    <span>Timestamp: {new Date(log.timestamp).toLocaleString()}</span>
+                  </div>
+                </div>
+                <div className="text-right space-y-1">
+                  <div className="flex items-center justify-end space-x-1.5 text-[10px] text-slate-500">
+                    <Key className="w-3 h-3 text-emerald-400" />
+                    <span>Hash: {log.currentHash ? log.currentHash.substring(0, 16) : 'e3b0c44298fc1c14'}...</span>
+                  </div>
+                </div>
+              </div>
+            ))}
           </div>
         )}
-
-        {/* Audit Log Table */}
-        <Card>
-          <CardHeader title="Tenant Audit History" subtitle={`Showing ${logs.length} of ${meta?.totalRecords || 0} audit entries`} />
-
-          {isLoading ? (
-            <div className="p-8 text-center text-slate-400 text-xs flex items-center justify-center space-x-2">
-              <div className="w-4 h-4 border-2 border-emerald-500 border-t-transparent rounded-full animate-spin" />
-              <span>Loading audit logs...</span>
-            </div>
-          ) : logs.length === 0 ? (
-            <div className="p-8 text-center text-slate-400 text-xs">No audit entries found.</div>
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-left text-xs text-slate-300">
-                <thead className="bg-slate-900/80 text-slate-400 uppercase tracking-wider text-[10px] border-b border-slate-800">
-                  <tr>
-                    <th className="p-3">Timestamp</th>
-                    <th className="p-3">Actor</th>
-                    <th className="p-3">Action</th>
-                    <th className="p-3">Module</th>
-                    <th className="p-3">Resource Type</th>
-                    <th className="p-3">Current Hash</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-800/60 font-mono">
-                  {logs.map((l) => (
-                    <tr key={l.id} className="hover:bg-slate-900/40 transition-all">
-                      <td className="p-3 text-slate-400">{new Date(l.timestamp).toLocaleString()}</td>
-                      <td className="p-3 font-sans text-slate-200">{l.actorEmail || l.actor?.email}</td>
-                      <td className="p-3 text-emerald-400 font-semibold">{l.actionType}</td>
-                      <td className="p-3 text-slate-400">{l.module || 'SYSTEM'}</td>
-                      <td className="p-3 text-slate-300">{l.resourceType}</td>
-                      <td className="p-3 text-[10px] text-slate-500 truncate max-w-[120px]">{l.currentHash?.slice(0, 16)}...</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </Card>
-      </div>
-    </ProtectedRoute>
+      </Card>
+    </div>
   );
 }

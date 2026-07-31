@@ -1,33 +1,28 @@
-import { apiClient } from '../lib/api-client';
+import { apiClient } from './api.client';
+import { User, Organization, Membership, AuthResponse } from '../types';
 
-export class AuthService {
-  static async login(data: { email: string; password: string; orgSlug?: string }) {
-    const res = await apiClient.post('/auth/login', data);
-    return res.data;
-  }
-
-  static async register(data: { email: string; password: string; fullName: string; orgName: string; orgSlug: string }) {
+export const authService = {
+  async register(data: { email: string; password: string; fullName: string; orgName: string }): Promise<AuthResponse> {
     const res = await apiClient.post('/auth/register', data);
-    return res.data;
-  }
+    return res.data.data;
+  },
 
-  static async getMe() {
+  async login(data: { email: string; password: string }): Promise<AuthResponse> {
+    const res = await apiClient.post('/auth/login', data);
+    return res.data.data;
+  },
+
+  async getCurrentUser(): Promise<{ user: User; activeOrg: Organization; memberships: Membership[] }> {
     const res = await apiClient.get('/auth/me');
-    return res.data;
-  }
+    return res.data.data;
+  },
 
-  static async switchOrg(targetOrgId: string) {
-    const res = await apiClient.post('/auth/switch-org', { targetOrgId });
-    return res.data;
-  }
+  async switchOrg(orgId: string): Promise<{ activeOrg: Organization; token: string }> {
+    const res = await apiClient.post('/auth/switch-org', { orgId });
+    return res.data.data;
+  },
 
-  static async logout() {
-    const res = await apiClient.post('/auth/logout');
-    return res.data;
-  }
-
-  static async logoutAll() {
-    const res = await apiClient.post('/auth/logout-all');
-    return res.data;
-  }
-}
+  async logout(): Promise<void> {
+    await apiClient.post('/auth/logout');
+  },
+};
